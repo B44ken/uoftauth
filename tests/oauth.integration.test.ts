@@ -30,9 +30,11 @@ after(async () => {
   await rm(bundle, { recursive: true })
 })
 
-type Scenario = { userType?: 'Member' | 'Guest'; tid?: string; nonce?: string; state?: string; viewOtherConsent?: boolean }
+type Scenario = { domain?: string; userType?: 'Member' | 'Guest'; tid?: string; nonce?: string; state?: string; viewOtherConsent?: boolean }
 
 async function login(scenario: Scenario = {}) {
+  const domain = scenario.domain ?? 'muoft.ca'
+  const clientOrigin = `https://${domain}`
   const cookies = new Map<string, string>()
   const requests: string[] = []
   let authorization: URL
@@ -112,13 +114,13 @@ async function login(scenario: Scenario = {}) {
   }
 
   try {
-    const consent = await request('/login?domain=muoft.ca')
+    const consent = await request(`/login?domain=${domain}`)
     assert.equal(consent.status, 200)
     const html = await consent.text()
     const csrfToken = html.match(/name="csrfToken" value="([^"]+)"/)![1]
     const callbackUrl = html.match(/name="callbackUrl" value="([^"]+)"/)![1]
     const intent = html.match(/name="intent" value="([^"]+)"/)![1]
-    assert.equal(callbackUrl, 'https://muoft.ca/')
+    assert.equal(callbackUrl, `${clientOrigin}/`)
     assert.equal(cookies.has('__Host-uoftauth.login'), false)
     const signin = await request('/auth/signin/microsoft-entra-id', {
       method: 'POST',
@@ -149,10 +151,11 @@ async function login(scenario: Scenario = {}) {
     })
     const callbackResponse = await request(`/auth/callback/microsoft-entra-id?${params}`)
     assert.equal(callbackResponse.status, 302, await callbackResponse.clone().text())
-    const me = await request('/me', { headers: { Origin: 'https://muoft.ca' } })
+    const me = await request('/me', { headers: { Origin: clientOrigin } })
     const otherSite = await request('/me', { headers: { Origin: 'https://attacker.example' } })
     return {
       status: me.status,
+      consentHtml: html,
       user: await me.json(),
       otherSiteUser: await otherSite.json(),
       cors: me.headers.get('access-control-allow-origin'),
@@ -178,6 +181,18 @@ test('microsoft member signs in through the callback and receives /me identity',
   assert.match(result.sessionCookie!, /; SameSite=None/i)
   assert.match(result.clearedIntent!, /; Max-Age=0/i)
   assert.ok(result.requests.includes('/v1.0/me'))
+})
+
+test('an untrusted domain requires consent and can authenticate its own session', async () => {
+  const result = await login({ domain: 'another.example' })
+  assert.match(result.consentHtml, /sign in to share your uoft account with <strong>https:\/\/another\.example<\/strong>/)
+  assert.match(result.consentHtml, /<button>sign in with uoft<\/button>/)
+  assert.doesNotMatch(result.consentHtml, /<script\b/)
+  assert.equal(result.redirect, 'https://another.example/')
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.user, { id: `${tenant}:${oid}`, name: 'test student', email: 'student@mail.utoronto.ca' })
+  assert.equal(result.cors, 'https://another.example')
+  assert.equal(result.otherSiteUser, null)
 })
 
 test('viewing another domain consent page does not change the accepted login grant', async () => {

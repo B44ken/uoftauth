@@ -149,6 +149,32 @@ test('login shows the chosen origin and binds it in a fifteen-minute encrypted i
     }
 })
 
+test('only trusted muoft.ca origins auto-submit the signed signin form', async () => {
+    for (const domain of ['muoft.ca', 'https://muoft.ca']) {
+        const response = await runtime.dispatchFetch(`${origin}/login?${new URLSearchParams({ domain })}`)
+        assert.equal(response.status, 200)
+        const html = await response.text()
+        const nonce = html.match(/<script nonce="([^"]+)">/)![1]
+        assert.ok(response.headers.get('content-security-policy')!.includes(`'nonce-${nonce}'`))
+        assert.match(html, /document\.forms\[0\]\.submit\(\)/)
+        assert.match(html, /<form\b[^>]*\bhidden\b/)
+        assert.match(html, /name="intent" value="[^"]+"/)
+        assert.doesNotMatch(html, /<button|sign in to share/i)
+    }
+})
+
+test('other domains, www, subdomains, and localhost retain manual consent', async () => {
+    for (const domain of ['frontend.example', 'www.muoft.ca', 'sub.muoft.ca', 'muoft.ca.attacker.example', 'http://localhost:5173']) {
+        const client = domain.includes('://') ? domain : `https://${domain}`
+        const response = await runtime.dispatchFetch(`${origin}/login?${new URLSearchParams({ domain })}`)
+        assert.equal(response.status, 200)
+        const html = await response.text()
+        assert.ok(html.includes(`<strong>${client}</strong>`))
+        assert.match(html, /<button>sign in with uoft<\/button>/)
+        assert.doesNotMatch(html, /<script/i)
+    }
+})
+
 test('a failed-CSRF signin cannot replace the pending login intent', async () => {
     const consent = await runtime.dispatchFetch(`${origin}/login?domain=frontend.example`)
     const token = (await consent.text()).match(/name="intent" value="([^"]+)"/)![1]
