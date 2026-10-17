@@ -1,0 +1,24 @@
+{
+  "name": "uoftauth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@auth/core": "^0.41.3",
+    "cookie": "^2.0.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261016.1",
+    "@types/node": "^26.6.5",
+    "jose": "^6.2.12",
+    "miniflare": "^4.20260730.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.151.1"
+  }
+}
