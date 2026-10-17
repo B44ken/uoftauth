@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { promisify } from 'node:util'
+import escapeHtml from 'escape-html'
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { Miniflare, Request as MiniflareRequest, Response as MiniflareResponse } from 'miniflare'
 
@@ -30,11 +31,12 @@ after(async () => {
   await rm(bundle, { recursive: true })
 })
 
-type Scenario = { domain?: string; userType?: 'Member' | 'Guest'; tid?: string; nonce?: string; state?: string; viewOtherConsent?: boolean }
+type Scenario = { domain?: string; callbackOverride?: string; userType?: 'Member' | 'Guest'; tid?: string; nonce?: string; state?: string; viewOtherConsent?: boolean }
 
 async function login(scenario: Scenario = {}) {
   const domain = scenario.domain ?? 'muoft.ca'
-  const clientOrigin = `https://${domain}`
+  const client = new URL(domain.includes('://') ? domain : `https://${domain}`)
+  const clientOrigin = client.origin
   const cookies = new Map<string, string>()
   const requests: string[] = []
   let authorization: URL
@@ -114,18 +116,18 @@ async function login(scenario: Scenario = {}) {
   }
 
   try {
-    const consent = await request(`/login?domain=${domain}`)
+    const consent = await request(`/login?${new URLSearchParams({ domain })}`)
     assert.equal(consent.status, 200)
     const html = await consent.text()
     const csrfToken = html.match(/name="csrfToken" value="([^"]+)"/)![1]
-    const callbackUrl = html.match(/name="callbackUrl" value="([^"]+)"/)![1]
+    const callbackValue = html.match(/name="callbackUrl" value="([^"]+)"/)![1]
     const intent = html.match(/name="intent" value="([^"]+)"/)![1]
-    assert.equal(callbackUrl, `${clientOrigin}/`)
+    assert.equal(callbackValue, escapeHtml(client.href))
     assert.equal(cookies.has('__Host-uoftauth.login'), false)
     const signin = await request('/auth/signin/microsoft-entra-id', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: origin },
-      body: new URLSearchParams({ csrfToken, callbackUrl, intent }).toString(),
+      body: new URLSearchParams({ csrfToken, callbackUrl: scenario.callbackOverride ?? client.href, intent }).toString(),
     })
     assert.equal(signin.status, 302)
     authorization = new URL(signin.headers.get('location')!)
@@ -181,6 +183,26 @@ test('microsoft member signs in through the callback and receives /me identity',
   assert.match(result.sessionCookie!, /; SameSite=None/i)
   assert.match(result.clearedIntent!, /; Max-Age=0/i)
   assert.ok(result.requests.includes('/v1.0/me'))
+})
+
+test('login returns to the full client path, query, and fragment', async () => {
+  const destination = 'https://muoft.ca/repo/upload?source=a&next=%22x%22#selection'
+  const result = await login({ domain: destination })
+  assert.ok(result.consentHtml.includes('name="callbackUrl" value="https://muoft.ca/repo/upload?source=a&amp;next=%22x%22#selection"'))
+  assert.equal(result.redirect, destination)
+  assert.deepEqual(result.user, { id: `${tenant}:${oid}`, name: 'test student', email: 'student@mail.utoronto.ca' })
+  assert.equal(result.cors, 'https://muoft.ca')
+  assert.equal(result.otherSiteUser, null)
+})
+
+test('a return URL on another origin cannot change the signed login grant', async () => {
+  const result = await login({
+    domain: 'https://muoft.ca/repo/upload?source=a&next=%22x%22#selection',
+    callbackOverride: 'https://attacker.example/repo',
+  })
+  assert.equal(result.redirect, `${origin}/me`)
+  assert.deepEqual(result.user, { id: `${tenant}:${oid}`, name: 'test student', email: 'student@mail.utoronto.ca' })
+  assert.equal(result.otherSiteUser, null)
 })
 
 test('an untrusted domain requires consent and can authenticate its own session', async () => {

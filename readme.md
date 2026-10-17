@@ -2,7 +2,7 @@
 
 cloudflare worker at https://uoftauth.boratto.ca. verifies access to a uoft microsoft member account, not current student enrolment.
 
-send the browser to `/login?domain=muoft.ca`. after sign-in, it returns to that site's homepage.
+send the browser to `/login?domain=muoft.ca`. `domain` also accepts a full URL, such as `https://muoft.ca/repo`; sign-in returns to that URL.
 
 any domain can authenticate. edit `trustedOrigins` in `src/index.ts` to maintain the whitelist of origins that skip our consent screen. currently only `https://muoft.ca` skips it; other domains see the receiving origin and must click to continue. `www` and subdomains aren't automatically trusted.
 

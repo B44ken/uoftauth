@@ -163,6 +163,18 @@ test('only trusted muoft.ca origins auto-submit the signed signin form', async (
     }
 })
 
+test('login preserves and escapes a full return URL while binding only its origin', async () => {
+    const domain = 'https://muoft.ca/repo/upload?source=a&next=%22x%22#selection'
+    const response = await runtime.dispatchFetch(`${origin}/login?${new URLSearchParams({ domain })}`)
+    assert.equal(response.status, 200)
+    const html = await response.text()
+    assert.ok(html.includes('name="callbackUrl" value="https://muoft.ca/repo/upload?source=a&amp;next=%22x%22#selection"'))
+    assert.match(html, /document\.forms\[0\]\.submit\(\)/)
+    const token = html.match(/name="intent" value="([^"]+)"/)![1]
+    const intent = await decode({ token, secret: env.AUTH_SECRET, salt: intentName })
+    assert.equal(intent!.origin, 'https://muoft.ca')
+})
+
 test('other domains, www, subdomains, and localhost retain manual consent', async () => {
     for (const domain of ['frontend.example', 'www.muoft.ca', 'sub.muoft.ca', 'muoft.ca.attacker.example', 'http://localhost:5173']) {
         const client = domain.includes('://') ? domain : `https://${domain}`

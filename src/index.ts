@@ -2,6 +2,7 @@ import { Auth, type AuthConfig } from '@auth/core'
 import { decode, encode, getToken, type JWT } from '@auth/core/jwt'
 import MicrosoftEntraID from '@auth/core/providers/microsoft-entra-id'
 import { stringifySetCookie } from 'cookie'
+import escapeHtml from 'escape-html'
 
 const tenant = '78aac226-2f03-4b4d-9037-b46d56c55210'
 const trustedOrigins = ['https://muoft.ca']
@@ -105,7 +106,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
     const page = new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>uoft login</title>
 <body>${trusted ? '' : `<p>sign in to share your uoft account with <strong>${client.origin}</strong>.</p>`}
-<form ${trusted ? 'hidden ' : ''}method="post" action="/auth/signin/microsoft-entra-id"><input type="hidden" name="csrfToken" value="${csrfToken}"><input type="hidden" name="callbackUrl" value="${client.origin}/"><input type="hidden" name="intent" value="${token}">${trusted ? '' : '<button>sign in with uoft</button>'}</form>
+<form ${trusted ? 'hidden ' : ''}method="post" action="/auth/signin/microsoft-entra-id"><input type="hidden" name="csrfToken" value="${csrfToken}"><input type="hidden" name="callbackUrl" value="${escapeHtml(client.href)}"><input type="hidden" name="intent" value="${token}">${trusted ? '' : '<button>sign in with uoft</button>'}</form>
 ${trusted ? `<script nonce="${nonce}">document.forms[0].submit()</script>` : ''}</body></html>`, { headers: response.headers })
     page.headers.set('Content-Type', 'text/html; charset=utf-8')
     page.headers.set('Content-Security-Policy', `default-src 'none'; frame-ancestors 'none'; base-uri 'none'${trusted ? `; script-src 'nonce-${nonce}'` : ''}`)
